@@ -1,0 +1,6 @@
+*.pyc
+*.egg-info*
+*.png
+*.jpg
+*.DM3
+*.tif
