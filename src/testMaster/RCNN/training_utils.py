@@ -1,11 +1,5 @@
 import torch
 import numpy as np
-from scipy import ndimage as nd
-from typing import Tuple, List, Dict, OrderedDict
-from torchvision.models.detection.roi_heads import fastrcnn_loss
-from torchvision.models.detection.roi_heads import maskrcnn_loss
-from torchvision.models.detection.roi_heads import maskrcnn_inference
-from torchvision.models.detection.rpn import concat_box_prediction_layers
 
 
 def calculate_iou_loss(pred_masks, target_masks, pred_score):
