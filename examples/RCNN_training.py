@@ -5,14 +5,10 @@ Created on Wed Feb 21 14:23:48 2024
 @author: espen
 """
 import torch
-from typing import Tuple, List, Dict, OrderedDict
-from torchvision.models.detection.roi_heads import fastrcnn_loss
-from torchvision.models.detection.roi_heads import maskrcnn_loss
-from torchvision.models.detection.roi_heads import maskrcnn_inference
-from torchvision.models.detection.rpn import concat_box_prediction_layers
-from data_loader import CustomDataset
-from model_utils import get_model, initialize_optimizer
-from training_utils import train_model
+from testMaster.RCNN.CustomDataset import CustomDataset
+from testMaster.RCNN.model_utils import get_model, initialize_optimizer
+from testMaster.RCNN.training_utils import train_model
+from pathlib import Path
  
 
 torch.backends.cudnn.deterministic = True
@@ -26,11 +22,9 @@ device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 # =============================================================================
 
 model_name = r"/v13"
-#base_path =  r"/cluster/work/espenjgr/rotated_labels/new_needle2"
-base_path = r"C:\Users\krist\OneDrive\Dokumenter\masterProsjekt\training\training_data"
-#out_path = r"/cluster/work/espenjgr/cross_models"
-out_path = r"C:\Users\krist\OneDrive\Dokumenter\masterProsjekt\training\training_data\out_path"
-
+this_dir = Path(__file__).resolve().parent
+base_path = this_dir.parent / "data"
+out_path = this_dir.parent / "data" / "models"
 
 batch_size = 1
 lr=1e-4
@@ -46,8 +40,8 @@ f.close()
 
 # Load datasets
 
-data_train = CustomDataset(base_path+"/train", transform = transform)   
-data_valid = CustomDataset(base_path+"/valid", transform = transform) 
+data_train = CustomDataset(base_path+"/train_cross", transform = transform)   
+data_valid = CustomDataset(base_path+"/valid_cross", transform = transform) 
 
 # Load model and optimizer
 
@@ -61,7 +55,3 @@ print('Model loaded')
 
 # Start training
 train_model(model, optimizer, data_train, data_valid, device, out_path, batch_size, lr)
-
-
-
-
