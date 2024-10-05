@@ -14,7 +14,7 @@ class CustomDataset():
     def __init__(self, image_dir, transform=None):
         self.image_dir = image_dir
         self.transform = transform
-        self.file = open(self.image_dir+"/_annotations.coco.json",'r')
+        self.file = open(os.path.join(self.image_dir, "_annotations.coco.json"),'r')
         self.data = json.load(self.file)
         self.img  = pd.DataFrame(self.data['images'])
         self.an   = pd.DataFrame(self.data['annotations'])

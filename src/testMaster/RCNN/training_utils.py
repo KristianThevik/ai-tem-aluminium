@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+import os
 
 
 def calculate_iou_loss(pred_masks, target_masks, pred_score):
@@ -29,8 +30,8 @@ def calculate_iou_loss(pred_masks, target_masks, pred_score):
 def train_model(model, optimizer, data_train, data_valid, device, out_path, batch_size, lr):
     train_loss , valid_loss, valid_IoU  = [] , [], []
     train_m_loss , valid_m_loss         = [] , []
+    f = open(os.path.join(out_path, "log.txt"), "a")
     for i in range(101): #Epochs
-        f = open(out_path+r"\log.txt", "a")
         for phase in ['train','valid']:
             running_loss = 0
             running_m_loss = 0
@@ -80,8 +81,8 @@ def train_model(model, optimizer, data_train, data_valid, device, out_path, batc
         avg_iou_mask = total_iou_mask/ len(datal)
         valid_IoU.append(avg_iou_mask)
         f.write('Epoch: {} ; Train_loss: {} ; Valid_loss: {} ; Valid_dice: {}\n'.format(i, train_loss[-1],valid_loss[-1],valid_IoU[-1]))
-        f.close()
         save_checkpoint(model, optimizer, i, out_path, train_loss, valid_loss, valid_IoU, train_m_loss, valid_m_loss, batch_size, lr)
+    f.close()
 
    
 def save_checkpoint(model, optimizer, i, out_path, train_loss, valid_loss, valid_IoU, train_m_loss, valid_m_loss, batch_size, lr):

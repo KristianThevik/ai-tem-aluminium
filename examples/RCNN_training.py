@@ -9,6 +9,7 @@ from testMaster.RCNN.CustomDataset import CustomDataset
 from testMaster.RCNN.model_utils import get_model, initialize_optimizer
 from testMaster.RCNN.training_utils import train_model
 from pathlib import Path
+import os
  
 
 torch.backends.cudnn.deterministic = True
@@ -21,16 +22,18 @@ device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 # Values
 # =============================================================================
 
-model_name = r"/v13"
 this_dir = Path(__file__).resolve().parent
 base_path = this_dir.parent / "data"
+Path(base_path).mkdir(parents=True, exist_ok=True)
 out_path = this_dir.parent / "data" / "models"
+Path(out_path).mkdir(parents=True, exist_ok=True)
+
 
 batch_size = 1
 lr=1e-4
 transform = None
 
-f = open(out_path+r"\log.txt", "w")
+f = open(os.path.join(out_path, "log.txt"), "w")
 f.write(f'Device \t\t: {device}\n')
 f.write(f'Batch_size \t: {batch_size}\n')
 f.write(f'Learning_rate \t: {lr}\n')
@@ -40,8 +43,8 @@ f.close()
 
 # Load datasets
 
-data_train = CustomDataset(base_path+"/train_cross", transform = transform)   
-data_valid = CustomDataset(base_path+"/valid_cross", transform = transform) 
+data_train = CustomDataset(base_path / "train_cross", transform = transform)   
+data_valid = CustomDataset(base_path / "valid_cross", transform = transform) 
 
 # Load model and optimizer
 
