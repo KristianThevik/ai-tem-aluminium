@@ -33,7 +33,7 @@ batch_size = 1
 lr=1e-4
 transform = None
 
-f = open(os.path.join(out_path, "log.txt"), "w")
+f = open(os.path.join(out_path, "RCNN_log.txt"), "w")
 f.write(f'Device \t\t: {device}\n')
 f.write(f'Batch_size \t: {batch_size}\n')
 f.write(f'Learning_rate \t: {lr}\n')

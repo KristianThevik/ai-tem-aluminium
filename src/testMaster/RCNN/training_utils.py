@@ -30,7 +30,7 @@ def calculate_iou_loss(pred_masks, target_masks, pred_score):
 def train_model(model, optimizer, data_train, data_valid, device, out_path, batch_size, lr):
     train_loss , valid_loss, valid_IoU  = [] , [], []
     train_m_loss , valid_m_loss         = [] , []
-    f = open(os.path.join(out_path, "log.txt"), "a")
+    f = open(os.path.join(out_path, "RCNN_log.txt"), "a")
     for i in range(101): #Epochs
         for phase in ['train','valid']:
             running_loss = 0
@@ -81,35 +81,45 @@ def train_model(model, optimizer, data_train, data_valid, device, out_path, batc
         avg_iou_mask = total_iou_mask/ len(datal)
         valid_IoU.append(avg_iou_mask)
         f.write('Epoch: {} ; Train_loss: {} ; Valid_loss: {} ; Valid_dice: {}\n'.format(i, train_loss[-1],valid_loss[-1],valid_IoU[-1]))
-        save_checkpoint(model, optimizer, i, out_path, train_loss, valid_loss, valid_IoU, train_m_loss, valid_m_loss, batch_size, lr)
+        # Save every 10 epochs as 'temp_save.pth'
+        if i % 10 == 0:
+            save_checkpoint(model, optimizer, i, out_path, train_loss, valid_loss, valid_IoU, train_m_loss, valid_m_loss, batch_size, lr, temp=True)
+    
+    # Save the final model at the end of all epochs as 'normal.pth'
+    save_checkpoint(model, optimizer, i, out_path, train_loss, valid_loss, valid_IoU, train_m_loss, valid_m_loss, batch_size, lr, temp=False)
+    
     f.close()
 
+
    
-def save_checkpoint(model, optimizer, i, out_path, train_loss, valid_loss, valid_IoU, train_m_loss, valid_m_loss, batch_size, lr):
-    if i%10==0:
+def save_checkpoint(model, optimizer, i, out_path, train_loss, valid_loss, valid_IoU, train_m_loss, valid_m_loss, batch_size, lr, temp=True):
+    if temp:
+        # Save as 'temp_save.pth' every 10 epochs
         torch.save({
-        'model_state_dict': model.state_dict(),
-        'optim': optimizer.state_dict(),
-        'loss': 'CrossEntropy',
-        'epoch': i,
-        'bs': batch_size, 
-        'lr': lr,
-        'valid_loss': valid_loss,
-        'valid_dice': valid_IoU,
-        'train_loss': train_loss,
-        'tmask_loss': train_m_loss,
-        'vmask_loss': valid_m_loss,
-        }, out_path+r"/normal"+str(i)+".pth")
-    torch.save({
-    'model_state_dict': model.state_dict(),
-    'optim': optimizer.state_dict(),
-    'loss': 'CrossEntropy',
-    'epoch': i,
-    'bs': batch_size, 
-    'lr': lr,
-    'valid_loss': valid_loss,
-    'valid_dice': valid_IoU,
-    'train_loss': train_loss,
-    'tmask_loss': train_m_loss,
-    'vmask_loss': valid_m_loss,
-    }, out_path+r"/temp_save.pth")
+            'model_state_dict': model.state_dict(),
+            'optim': optimizer.state_dict(),
+            'loss': 'CrossEntropy',
+            'epoch': i,
+            'bs': batch_size, 
+            'lr': lr,
+            'valid_loss': valid_loss,
+            'valid_dice': valid_IoU,
+            'train_loss': train_loss,
+            'tmask_loss': train_m_loss,
+            'vmask_loss': valid_m_loss,
+        }, out_path + "/temp_save.pth")
+    else:
+        # Save the final model as 'normal.pth' at the end
+        torch.save({
+            'model_state_dict': model.state_dict(),
+            'optim': optimizer.state_dict(),
+            'loss': 'CrossEntropy',
+            'epoch': i,
+            'bs': batch_size, 
+            'lr': lr,
+            'valid_loss': valid_loss,
+            'valid_dice': valid_IoU,
+            'train_loss': train_loss,
+            'tmask_loss': train_m_loss,
+            'vmask_loss': valid_m_loss,
+        }, out_path + "/normal.pth")
