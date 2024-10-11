@@ -8,16 +8,9 @@ from testMaster.UNET.CustomDataset import CustomDataset
 from testMaster.UNET.model_utils import UNet
 from testMaster.UNET.training_utils import train_model, dice
 import torch 
-import torch.nn as nn
-from torch.utils.data import DataLoader, Dataset
-from torch.optim import adam
+from torch.utils.data import DataLoader
 from torchvision import transforms as tf
-import torch.nn.functional as F
 from PIL import Image
-import numpy as np
-import random
-import cv2
-import pandas as pd
 from pathlib import Path
 import os
 
@@ -47,15 +40,14 @@ out_path = this_dir.parent / "data" / "models"
 Path(out_path).mkdir(parents=True, exist_ok=True)
 
 
-
 f = open(os.path.join(out_path, "Unet_log.txt"), "w")
 f.write(f'Device is {device}\n')
 f.write('#'*20+'\n')
 f.close()
     
 
-data_train = CustomDataset(base_path+r"/train", transform = transform)
-data_valid = CustomDataset(base_path+r"/valid", transform = transform)
+data_train = CustomDataset(base_path / "train_cross", transform = transform)
+data_valid = CustomDataset(base_path / "valid_cross", transform = transform)
 
 train_data = DataLoader(data_train, batch_size=batch_size, shuffle=True)
 valid_data = DataLoader(data_valid, batch_size=batch_size, shuffle=True)

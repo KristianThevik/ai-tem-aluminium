@@ -31,7 +31,7 @@ def dice(predb, yb, device):
 
 def save_model(model, optimizer, train_loss, valid_loss, valid_met, epoch, datal, out_path, learning_rate, early=False):
     if early:
-        f_path = out_path + 'Unet_patience.pth'
+        f_path = os.path.join(out_path, 'Unet_patience.pth')
         print(f"Early save at epoch {epoch}")
     else:
         f_path = out_path + 'Unet_model.pth'
@@ -57,7 +57,7 @@ def train_model(model, optimizer, loss_function, metric, train_data, valid_data,
     start = time.time()
 
     for epoch in range(number_of_epochs):
-        f = open(os.path.join(out_path + 'Unet_log.txt'), "a")
+        f = open(os.path.join(out_path,'Unet_log.txt'), "a")
         f.write('-' * 100 + '\n')
         f.write('Epoch {}/{}\n'.format(epoch, number_of_epochs - 1))
 
@@ -123,7 +123,7 @@ def train_model(model, optimizer, loss_function, metric, train_data, valid_data,
     save_model(model, optimizer, train_loss, valid_loss, valid_met, number_of_epochs, datal, out_path, learning_rate)
 
     time_elapsed = time.time() - start
-    f = open(os.path.join(out_path + 'Unet_log.txt'), "a")
+    f = open(os.path.join(out_path, 'Unet_log.txt'), "a")
     f.write('Training complete in {:.0f}m {:.0f}s\n'.format(time_elapsed // 60, time_elapsed % 60))
     f.close()
     

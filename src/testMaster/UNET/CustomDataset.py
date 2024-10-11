@@ -12,7 +12,8 @@ class CustomDataset(Dataset):
     def __init__(self, image_dir, transform=None, mask_transform = None):
         self.image_dir = image_dir
         self.transform = transform
-        
+        # There are no mask files in dataset, create them with mask function
+        generate_and_save_masks(image_dir)
         self.images = sorted([i for i in os.listdir(image_dir) if 'mask' not in i and i.endswith('.jpg')])
         self.masks = sorted([i for i in os.listdir(image_dir) if ('mask' in i and i.endswith('.png'))])
 
@@ -41,27 +42,41 @@ class CustomDataset(Dataset):
 
         return image, mask[0]
     
-def get_mask():
-    # Load the COCO annotation file
-    coco = COCO(r'C:\Users\krist\Documents\masterRepo\data\train_cross\_annotations.coco.json')
+def generate_and_save_masks(image_dir):
+    """
+    This function generates and saves mask files for each image based on the COCO annotations.
+    The masks will be saved in the same directory as the images, with '_mask.png' suffixes.
+    
+    """
+    
+    # Load the COCO annotations
+    coco = COCO(os.path.join(image_dir, '_annotations.coco.json'))
 
-    # Load an image and its annotations
-    image_id = 131  # Use the correct image ID
-    ann_ids = coco.getAnnIds(imgIds=image_id)
-    annotations = coco.loadAnns(ann_ids)
+    # Get all image IDs
+    image_ids = coco.getImgIds()
 
-    # Create an empty mask
-    image_info = coco.loadImgs(image_id)[0]
-    mask = np.zeros((image_info['height'], image_info['width']))
+    # Iterate over each image
+    for image_id in image_ids:
+        # Load image info to get file name and dimensions
+        image_info = coco.loadImgs(image_id)[0]
+        file_name = image_info['file_name']
+        width, height = image_info['width'], image_info['height']
+        
+        # Create an empty mask
+        mask = np.zeros((height, width), dtype=np.uint8)
 
-    # Iterate through all annotations for this image
-    for ann in annotations:
-        mask = np.maximum(mask, coco.annToMask(ann))
+        # Get all annotation IDs for this image
+        ann_ids = coco.getAnnIds(imgIds=image_id)
+        annotations = coco.loadAnns(ann_ids)
 
-    # Display the mask using matplotlib
-    plt.imshow(mask, cmap='gray')
-    plt.axis('off')  # To remove axis ticks
-    plt.show()
+        # Iterate through annotations and update the mask
+        for ann in annotations:
+            ann_mask = coco.annToMask(ann)
+            mask = np.maximum(mask, ann_mask)
 
-# Call the function to display the mask
-get_mask()
+        # Create mask file name
+        mask_file_name = file_name.replace('.jpg', '_mask.png')
+        mask_file_path = os.path.join(image_dir, mask_file_name)
+
+        # Save the mask as a PNG file
+        Image.fromarray(mask * 255).save(mask_file_path)
