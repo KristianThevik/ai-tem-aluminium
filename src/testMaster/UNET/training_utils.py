@@ -34,7 +34,7 @@ def save_model(model, optimizer, train_loss, valid_loss, valid_met, epoch, datal
         f_path = os.path.join(out_path, 'Unet_patience.pth')
         print(f"Early save at epoch {epoch}")
     else:
-        f_path = out_path + 'Unet_model.pth'
+        f_path = os.path.join(out_path, 'Unet_model.pth')
 
     torch.save({
         'model_state_dict': model.state_dict(),

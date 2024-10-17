@@ -6,7 +6,6 @@ from torch.utils.data import Dataset
 from pycocotools.coco import COCO
 import numpy as np
 
-import matplotlib.pyplot as plt
 
 class CustomDataset(Dataset):
     def __init__(self, image_dir, transform=None, mask_transform = None):
