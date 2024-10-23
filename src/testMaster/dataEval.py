@@ -7,7 +7,7 @@ from torchvision.models.detection import maskrcnn_resnet50_fpn
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 import cv2
 from skimage.segmentation import clear_border
-#from testMaster.u_net_pytorch import UNet
+from testMaster.u_net_pytorch import UNet
 from  PIL import Image
 from itertools import product
 import pandas as pd
@@ -65,12 +65,19 @@ class Evaluator:
         df.to_csv(os.path.join(os.path.dirname(self.dataset_dir), 'statistics.csv'))
         
 
+
+
+
+    
+        
+
+    
     
 class RCNNEvaluator(Evaluator):
-    def __init__(self, dataset_dir, model, cross, device):
-        super().__init__(dataset_dir, model, cross, device) # Inherits what is common for all model evaluator from Evalutaor class
+    def __init__(self, model, cross, device, other, stuff, specific, f_or, r_cnn):
+        super().__init__(model, cross, device) # Inherits what is common for all model evaluator from Evalutaor class
         self.size = 1024
-        self.threshold = 0.9 if cross else 0.4
+        self.treshold = 0.9 if cross else 0.4
         self.erode_it = 0 if cross else 4
 
         # Load the model
@@ -105,7 +112,7 @@ class RCNNEvaluator(Evaluator):
         self.confidence_scores = []
         print('Mask threshold set to {0:.2f}'.format(self.threshold))
         print('Calibration used: {0:.4f} nm/px'.format(self.nm_per_px))
-        im = self.to_tensor(img).unsqueeze(0).to(self.device)
+        im = self.to_tensor(self, img).unsqueeze(0).to(self.device)
         self.nm_per_px *=2 #Original calibration for 2048x2048, but images are resized to 1024x1024
         with torch.no_grad(): #Predict
             pred = self.model(im)
@@ -124,7 +131,7 @@ class RCNNEvaluator(Evaluator):
                 if scr>0.9 and area1 == area2:
                    self.area.append(area1)
                    self.confidence_scores.append(scr)
-            return np.array(self.area)*self.nm_per_px**2, self.confidence_scores
+            return self.area*self.nm_per_px**2, self.confidence_scores
         else:
             for i in range(len(pred[0]['masks'])):
                 scr = pred[0]['scores'][i].detach().cpu().numpy()
@@ -139,12 +146,12 @@ class RCNNEvaluator(Evaluator):
                     length = np.max([width,height])
                     self.lengths.append(length)
                     self.confidence_scores.append(scr)
-            return np.array(self.lengths)*self.nm_per_px, self.confidence_scores
+            return self.lengths*self.nm_per_px, self.confidence_scores
         
 
 
 class UNETEvaluator(Evaluator):
-    def __init__(self, model, cross, device):
+    def __init__(self, model, cross, device, other, stuff, specific, f_or, r_cnn):
         super().__init__(model, cross, device) # Inherits what is common for all model evaluator from Evalutaor class
         self.size      = 1024
         self.tile_size = 512

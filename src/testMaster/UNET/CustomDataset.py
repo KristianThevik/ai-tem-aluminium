@@ -54,14 +54,10 @@ def generate_and_save_masks(image_dir):
     # Get all image IDs
     image_ids = coco.getImgIds()
 
-    # Iterate over each image
     for image_id in image_ids:
-        # Load image info to get file name and dimensions
         image_info = coco.loadImgs(image_id)[0]
         file_name = image_info['file_name']
         width, height = image_info['width'], image_info['height']
-        
-        # Create an empty mask
         mask = np.zeros((height, width), dtype=np.uint8)
 
         # Get all annotation IDs for this image
@@ -73,9 +69,6 @@ def generate_and_save_masks(image_dir):
             ann_mask = coco.annToMask(ann)
             mask = np.maximum(mask, ann_mask)
 
-        # Create mask file name
         mask_file_name = file_name.replace('.jpg', '_mask.png')
         mask_file_path = os.path.join(image_dir, mask_file_name)
-
-        # Save the mask as a PNG file
         Image.fromarray(mask * 255).save(mask_file_path)
