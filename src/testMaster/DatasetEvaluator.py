@@ -7,7 +7,7 @@ from torchvision.models.detection import maskrcnn_resnet50_fpn
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 import cv2
 from skimage.segmentation import clear_border
-#from testMaster.u_net_pytorch import UNet
+from testMaster.u_net_pytorch import UNet
 from  PIL import Image
 from itertools import product
 import pandas as pd
@@ -144,8 +144,8 @@ class RCNNEvaluator(Evaluator):
 
 
 class UNETEvaluator(Evaluator):
-    def __init__(self, model, cross, device):
-        super().__init__(model, cross, device) # Inherits what is common for all model evaluator from Evalutaor class
+    def __init__(self, dataset_dir, model, cross, device):
+        super().__init__(dataset_dir, model, cross, device) # Inherits what is common for all model evaluator from Evalutaor class
         self.size      = 1024
         self.tile_size = 512
         self.checkpoint = torch.load(model, map_location=torch.device(device))
@@ -198,7 +198,7 @@ class UNETEvaluator(Evaluator):
         self.lengths = []
 
         # Process the single image tiled into multiple images, see tile_image function
-        true_img, imgs = self.to_tensor(self, img)
+        true_img, imgs = self.to_tensor(img)
         new_im = Image.new('RGB', (self.size, self.size))
         self.nm_per_px *= 2  # Original calibration for 2048x2048, but images are resized to 1024x1024
 
@@ -222,6 +222,78 @@ class UNETEvaluator(Evaluator):
             self.calc_length(self.prediction[-1])
 
         if self.cross:
-            return self.area*self.nm_per_px**2, true_img , self.prediction
+            return np.array(self.area)*self.nm_per_px**2, np.ones(len(self.area))  # Dummy array, should implement confidence score
         else:
-            return self.lengths*self.nm_per_px, true_img , self.prediction
+            return np.array(self.lengths)*self.nm_per_px, np.ones(len(self.lengths)) # Dummy array, should implement confidence score
+        
+    def watershed(self, img, plot = False):
+        
+        """
+        Performs the watershed algorithm on the prediction img
+    
+        img  : PIL.Image (semantic segmentation prediction map)
+        plot : bool (True if you want to see the watershed processing steps)
+        
+        Documentation: https://docs.opencv.org/4.x/d3/db4/tutorial_py_watershed.html
+        
+        """
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        gray = clear_border(gray)
+        ret, bin_img = cv2.threshold(gray, 0, 255, cv2.THRESH_OTSU) 
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        sure_bg = cv2.dilate(bin_img, kernel, iterations=20) 
+        dist = cv2.distanceTransform(bin_img, cv2.DIST_L2, 5) 
+        
+       
+        #foreground area 
+        ret, sure_fg = cv2.threshold(dist, 0.15 * dist.max(), 255, cv2.THRESH_BINARY) 
+        sure_fg = sure_fg.astype(np.uint8)   
+          
+        # unknown area 
+        unknown = cv2.subtract(sure_bg, sure_fg) 
+        ret, markers = cv2.connectedComponents(sure_fg) 
+          
+        # Add one to all labels so that background is not 0, but 1 
+        markers += 1
+        markers[unknown == 255] = 0
+        markers = cv2.watershed(img, markers) 
+        
+        if plot:
+            fig, axes = plt.subplots(2,2)
+            axes[0,0].imshow(gray) 
+            axes[0, 0].set_title('Img') 
+            axes[0,1].imshow(dist) 
+            axes[0, 1].set_title('Distance Transform') 
+              
+            axes[1,0].imshow(sure_fg) 
+            axes[1, 0].set_title('Sure Foreground') 
+            axes[1,1].imshow(markers) 
+            axes[1, 1].set_title('Markers') 
+    
+        img2 = color.label2rgb(markers,bg_label = 1,bg_color=(0, 0, 0))
+        props = measure.regionprops_table(markers, intensity_image=gray, 
+                                      properties=['label',
+                                                  'area', 'equivalent_diameter',
+                                                  'mean_intensity', 'solidity'])
+        
+        df = pd.DataFrame(props)
+        area = list(df[(df.mean_intensity > 100) & (df.area > 1.5/self.nm_per_px**2)].area)
+        return area
+
+    def calc_length(self, img):
+        """
+        Estimates the length of precipitates
+        """
+        grey = img[:,:,0]
+        contours, hierarchy = cv2.findContours(grey, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE) 
+        l      = []
+        for contour in contours:
+            (center), (width,height), angle = cv2.minAreaRect(contour)
+            length = np.max([width,height])
+            l.append([length, angle+(angle<0)*90])
+        for index, (length, angle) in enumerate(l):
+            median_angle = np.median([angle for (length, angle) in l if length*self.nm_per_px > 5]) #Find angles of all detections longer than 5nm
+            error        = 5.0 #degrees
+            if  (median_angle - error<angle<median_angle + error) and length*self.nm_per_px>3: #If precipitate in correct direction (within error) and longer than 3nm, accept detection
+                self.lengths.append(length) 
+    
