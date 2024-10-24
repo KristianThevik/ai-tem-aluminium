@@ -14,6 +14,7 @@ import pandas as pd
 from skimage import measure, color
 import pandas as pd
 
+
 """
     Method for converting Digital Micrograph files to arrays should be implemented
     since datasets could be dm3 files.
@@ -53,18 +54,37 @@ class Evaluator:
                 image_ids.append(id)
                 len_cross_vals.append(prediction[i])
                 confidence_scores.append(scores[i])
+        
+        mean_value = np.mean(len_cross_vals)
+        std_value = np.std(len_cross_vals)
+        std_mean = std_value / np.sqrt(len(len_cross_vals))  # Standard error of the mean
+        number_density = len(len_cross_vals) / (len(image_ids)*(self.size*self.nm_per_px)**2)
 
         if self.cross:
             values = 'Cross section [nm^2]'
+            unit = 'nm^2'
         else:
             values = 'Length [nm]'
+            unit = 'nm'
 
         stats_dict = {'Image ID' : image_ids, values : len_cross_vals, 'Confidence score' : confidence_scores}
 
         df = pd.DataFrame(stats_dict)
         df.to_csv(os.path.join(os.path.dirname(self.dataset_dir), 'statistics.csv'))
-        
 
+        print('Average: {0:.2f} {5}, STDev: {1:.2f} {5}, Number counted: {2:d}, STDev of mean: {3:.2f}, Number density: {4:.7f}nm^-2'.format(mean_value, std_value, len(len_cross_vals), std_mean , number_density, unit))
+
+        
+        hist_vals = np.array(len_cross_vals)
+        fig, ax = plt.subplots(figsize=(6, 4))
+        ax.hist(hist_vals, bins=20, alpha=0.5, edgecolor="black")
+
+        ax.set_xlabel("Cross Section [nm^2]" if self.cross else "Length [nm]")  # Adjust based on your measurement
+        ax.set_xlim(0, max(hist_vals))
+        ax.set_ylabel("Number Frequency")
+        ax.set_title("Distribution of Cross-Sectional Areas" if self.cross else "Distribution of Lengths")
+       
+        plt.show()
     
 class RCNNEvaluator(Evaluator):
     def __init__(self, dataset_dir, model, cross, device):
@@ -106,7 +126,7 @@ class RCNNEvaluator(Evaluator):
         print('Mask threshold set to {0:.2f}'.format(self.threshold))
         print('Calibration used: {0:.4f} nm/px'.format(self.nm_per_px))
         im = self.to_tensor(img).unsqueeze(0).to(self.device)
-        self.nm_per_px *=2 #Original calibration for 2048x2048, but images are resized to 1024x1024
+        temp_nm_per_px = self.nm_per_px *2 #Original calibration for 2048x2048, but images are resized to 1024x1024
         with torch.no_grad(): #Predict
             pred = self.model(im)
             
@@ -124,7 +144,7 @@ class RCNNEvaluator(Evaluator):
                 if scr>0.9 and area1 == area2:
                    self.area.append(area1)
                    self.confidence_scores.append(scr)
-            return np.array(self.area)*self.nm_per_px**2, self.confidence_scores
+            return np.array(self.area)*temp_nm_per_px**2, self.confidence_scores
         else:
             for i in range(len(pred[0]['masks'])):
                 scr = pred[0]['scores'][i].detach().cpu().numpy()
@@ -139,7 +159,7 @@ class RCNNEvaluator(Evaluator):
                     length = np.max([width,height])
                     self.lengths.append(length)
                     self.confidence_scores.append(scr)
-            return np.array(self.lengths)*self.nm_per_px, self.confidence_scores
+            return np.array(self.lengths)*temp_nm_per_px, self.confidence_scores
         
 
 
@@ -200,7 +220,7 @@ class UNETEvaluator(Evaluator):
         # Process the single image tiled into multiple images, see tile_image function
         true_img, imgs = self.to_tensor(img)
         new_im = Image.new('RGB', (self.size, self.size))
-        self.nm_per_px *= 2  # Original calibration for 2048x2048, but images are resized to 1024x1024
+        temp_nm_per_px = self.nm_per_px * 2  # Original calibration for 2048x2048, but images are resized to 1024x1024
 
         for index, im in enumerate(imgs):
             im = im.unsqueeze(0).to(self.device)
@@ -217,16 +237,16 @@ class UNETEvaluator(Evaluator):
         self.prediction.append(np.array(new_im))
 
         if self.cross:
-            self.area += self.watershed(self.prediction[-1], plot=False)
+            self.area += self.watershed(self.prediction[-1], temp_nm_per_px, plot=False)
         else:
-            self.calc_length(self.prediction[-1])
+            self.calc_length(self.prediction[-1], temp_nm_per_px)
 
         if self.cross:
-            return np.array(self.area)*self.nm_per_px**2, np.ones(len(self.area))  # Dummy array, should implement confidence score
+            return np.array(self.area)*temp_nm_per_px**2, np.ones(len(self.area))  # Dummy array, should implement confidence score
         else:
-            return np.array(self.lengths)*self.nm_per_px, np.ones(len(self.lengths)) # Dummy array, should implement confidence score
+            return np.array(self.lengths)*temp_nm_per_px, np.ones(len(self.lengths)) # Dummy array, should implement confidence score
         
-    def watershed(self, img, plot = False):
+    def watershed(self, img, nm_px_ratio, plot = False):
         
         """
         Performs the watershed algorithm on the prediction img
@@ -277,10 +297,10 @@ class UNETEvaluator(Evaluator):
                                                   'mean_intensity', 'solidity'])
         
         df = pd.DataFrame(props)
-        area = list(df[(df.mean_intensity > 100) & (df.area > 1.5/self.nm_per_px**2)].area)
+        area = list(df[(df.mean_intensity > 100) & (df.area > 1.5/nm_px_ratio**2)].area)
         return area
 
-    def calc_length(self, img):
+    def calc_length(self, img, nm_px_ratio):
         """
         Estimates the length of precipitates
         """
@@ -292,8 +312,8 @@ class UNETEvaluator(Evaluator):
             length = np.max([width,height])
             l.append([length, angle+(angle<0)*90])
         for index, (length, angle) in enumerate(l):
-            median_angle = np.median([angle for (length, angle) in l if length*self.nm_per_px > 5]) #Find angles of all detections longer than 5nm
+            median_angle = np.median([angle for (length, angle) in l if length*nm_px_ratio > 5]) #Find angles of all detections longer than 5nm
             error        = 5.0 #degrees
-            if  (median_angle - error<angle<median_angle + error) and length*self.nm_per_px>3: #If precipitate in correct direction (within error) and longer than 3nm, accept detection
+            if  (median_angle - error<angle<median_angle + error) and length*nm_px_ratio>3: #If precipitate in correct direction (within error) and longer than 3nm, accept detection
                 self.lengths.append(length) 
     
