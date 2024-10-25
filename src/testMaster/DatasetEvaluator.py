@@ -12,6 +12,7 @@ from  PIL import Image
 from itertools import product
 import pandas as pd
 from skimage import measure, color
+from skimage.measure import label
 import pandas as pd
 
 
@@ -216,10 +217,12 @@ class UNETEvaluator(Evaluator):
         self.prediction = []
         self.area = []
         self.lengths = []
+        confidence_scores = []
 
         # Process the single image tiled into multiple images, see tile_image function
         true_img, imgs = self.to_tensor(img)
         new_im = Image.new('RGB', (self.size, self.size))
+        full_prob_map = np.zeros((self.size, self.size))
         temp_nm_per_px = self.nm_per_px * 2  # Original calibration for 2048x2048, but images are resized to 1024x1024
 
         for index, im in enumerate(imgs):
@@ -228,24 +231,55 @@ class UNETEvaluator(Evaluator):
                 pred = self.model(im)
                 output = torch.argmax(pred, dim=1)  # Get the index of the channel with the highest probability
                 output = output.squeeze(0).cpu().numpy()
+                probability_map = torch.sigmoid(pred) # Get probabilites of each pixel belonging to the assigned class, Using sigmoid since we have binary sgementation
+                probability_map = probability_map.squeeze(0).cpu().numpy()  # Convert to numpy array for easier processing
+                object_prob_map = probability_map[1]  # index 1 is the second channel, the percipitate class
 
             y_offset = int(self.tile_size * (index > 1))
             x_offset = int(self.tile_size * (index % 2))
             out = Image.fromarray(output.astype('uint8') * 255).convert('RGB')
             new_im.paste(out, box=(x_offset, y_offset))
+            full_prob_map[y_offset:y_offset + self.tile_size, x_offset:x_offset + self.tile_size] = object_prob_map
 
         self.prediction.append(np.array(new_im))
 
         if self.cross:
             self.area += self.watershed(self.prediction[-1], temp_nm_per_px, plot=False)
+
+            # Use markers from watershed to identify objects
+            labeled_objects, num_objects = label(self.prediction[-1] > 0, return_num = True)
+            
+            # Calculate confidence scores for each object using the labeled regions
+            for obj_label in range(1, num_objects + 1):
+                # Use only the first channel of the RGB mask since all channels are expected to have the same values.
+                # This assumes that the RGB channels have consistent values for the labeled objects.
+                object_mask = (labeled_objects == obj_label)[:, :, 0]
+                object_probabilities = full_prob_map[object_mask]
+                confidence_score = object_probabilities[object_probabilities > 0.5].mean()  # Calculate average probability for the object, avoiding outer pixels with low score
+                confidence_scores.append(confidence_score)
+            
+            return np.array(self.area) * temp_nm_per_px**2, confidence_scores  # Dummy array, should implement confidence score
         else:
             self.calc_length(self.prediction[-1], temp_nm_per_px)
 
-        if self.cross:
-            return np.array(self.area)*temp_nm_per_px**2, np.ones(len(self.area))  # Dummy array, should implement confidence score
-        else:
-            return np.array(self.lengths)*temp_nm_per_px, np.ones(len(self.lengths)) # Dummy array, should implement confidence score
-        
+            grey = self.prediction[-1][:, :, 1]
+            contours, _ = cv2.findContours(grey, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            # Calculate confidence scores for each detected contour (object)
+            # TODO: Investigate prediction score, threshold-mean vs perhaps median? or some other way. 
+            # TODO: Investigate why some objects do not have scores, may be RGB channel do not have same value, convert to grayscale 
+            for contour in contours:
+                # Create a mask for the current contour
+                mask = np.zeros_like(grey, dtype=bool)
+                cv2.drawContours(mask, [contour], -1, 1, thickness=cv2.FILLED)
+
+                # Get the probabilities for the pixels within this contour
+                object_probabilities = full_prob_map[mask]
+                confidence_score = object_probabilities[object_probabilities > 0.5].mean()  # Calculate average probability for the object, avoiding outer pixels with low score
+                confidence_scores.append(confidence_score)
+            
+            return np.array(self.lengths) * temp_nm_per_px, confidence_scores  # Dummy array, should implement confidence score
+
     def watershed(self, img, nm_px_ratio, plot = False):
         
         """
