@@ -50,7 +50,8 @@ class Evaluator:
         confidence_scores = []
 
         for id, image in enumerate(self.image_paths):
-            prediction, scores = self.predict(image)
+            prediction, scores, gray_img, overlay_img = self.predict(image)
+            self.check_image(gray_img, overlay_img, id)
             for i in range(len(prediction)):
                 image_ids.append(id)
                 len_cross_vals.append(prediction[i])
@@ -68,7 +69,17 @@ class Evaluator:
             values = 'Length [nm]'
             unit = 'nm'
 
-        stats_dict = {'Image ID' : image_ids, values : len_cross_vals, 'Confidence score' : confidence_scores}
+        # Filling lists with nan values so that the values do not repaeat over all rows
+        stats_dict = {
+            'Image ID' : image_ids, 
+            values : np.round(len_cross_vals, 1), 
+            'Confidence score' : np.round(confidence_scores, 3),
+            f'Average [{unit}]': [np.round(mean_value, 2)] + [np.nan] * (len(len_cross_vals) - 1),
+            f'Standard Deviation [{unit}]': [np.round(std_value, 2)] + [np.nan] * (len(len_cross_vals) - 1),
+            'Number Counted': [len(len_cross_vals)] + [np.nan] * (len(len_cross_vals) - 1),
+            f'Standard Error of Mean [{unit}]': [np.round(std_mean, 2)] + [np.nan] * (len(len_cross_vals) - 1),
+            'Number Density [nm^-2]': [np.round(number_density, 7)] + [np.nan] * (len(len_cross_vals) - 1)  
+        }
 
         df = pd.DataFrame(stats_dict)
         df.to_csv(os.path.join(os.path.dirname(self.dataset_dir), 'statistics.csv'))
@@ -86,6 +97,26 @@ class Evaluator:
         ax.set_title("Distribution of Cross-Sectional Areas" if self.cross else "Distribution of Lengths")
        
         plt.show()
+
+    def check_image(self, img, mask, n):
+
+        pred_path = os.path.join(os.path.dirname(self.dataset_dir), 'image_predictions')
+        os.makedirs(pred_path, exist_ok=True) 
+
+        fig, axes = plt.subplots(1,2)
+        axes[0].imshow(img, cmap = 'gray')
+        axes[0].set_title('Original Grayscale Image',  fontsize=10)
+        axes[1].imshow(mask)
+        axes[1].set_title('Predicted Precipitates',  fontsize=10)
+        for ax in axes:
+            ax.set_xticks([])
+            ax.set_yticks([])
+            
+        fig.subplots_adjust(wspace=0.2)
+        fig.savefig(os.path.join(pred_path, f'Image{n}.png'), dpi = 300)
+        plt.close(fig)
+        
+
     
 class RCNNEvaluator(Evaluator):
     def __init__(self, dataset_dir, model, cross, device):
@@ -128,6 +159,10 @@ class RCNNEvaluator(Evaluator):
         print('Calibration used: {0:.4f} nm/px'.format(self.nm_per_px))
         im = self.to_tensor(img).unsqueeze(0).to(self.device)
         temp_nm_per_px = self.nm_per_px *2 #Original calibration for 2048x2048, but images are resized to 1024x1024
+        im_np = im[0].detach().cpu().numpy().transpose(1, 2, 0)  # Convert to HxWxC format
+        gray = cv2.cvtColor(im_np,cv2.COLOR_BGR2RGB)
+        overlay = gray.copy()
+
         with torch.no_grad():
             pred = self.model(im)
             
@@ -145,7 +180,10 @@ class RCNNEvaluator(Evaluator):
                 if scr>0.9 and area1 == area2:
                    self.area.append(area1)
                    self.confidence_scores.append(scr)
-            return np.array(self.area)*temp_nm_per_px**2, self.confidence_scores
+                   # Add red overlay to the accepcted areas
+                   overlay[msk] = [1, 0, 0]
+
+            return np.array(self.area)*temp_nm_per_px**2, self.confidence_scores, gray, overlay
         else:
             for i in range(len(pred[0]['masks'])):
                 scr = pred[0]['scores'][i].detach().cpu().numpy()
@@ -160,7 +198,8 @@ class RCNNEvaluator(Evaluator):
                     length = np.max([width,height])
                     self.lengths.append(length)
                     self.confidence_scores.append(scr)
-            return np.array(self.lengths)*temp_nm_per_px, self.confidence_scores
+                    overlay[msk] = [1, 0, 0]
+            return np.array(self.lengths)*temp_nm_per_px, self.confidence_scores, gray, overlay
         
 
 
@@ -220,7 +259,8 @@ class UNETEvaluator(Evaluator):
         self.confidence_scores = []
 
         # Process the single image tiled into multiple images, see tile_image function
-        true_img, imgs = self.to_tensor(img)
+        true_img, imgs = self.to_tensor(img)  
+        overlay = cv2.cvtColor(true_img, cv2.COLOR_GRAY2RGB)  
         new_im = Image.new('RGB', (self.size, self.size))
         full_prob_map = np.zeros((self.size, self.size))
         temp_nm_per_px = self.nm_per_px * 2  # Original calibration for 2048x2048, but images are resized to 1024x1024
@@ -243,6 +283,7 @@ class UNETEvaluator(Evaluator):
 
         self.prediction.append(np.array(new_im))
 
+
         if self.cross:
             area, markers, labels = self.watershed(self.prediction[-1], temp_nm_per_px, plot=False)
             self.area += area
@@ -254,14 +295,15 @@ class UNETEvaluator(Evaluator):
             
             for obj_label in labels:
                 object_mask = (markers == obj_label)
+                overlay[object_mask] = [255, 0, 0]  
                 object_probabilities = full_prob_map[object_mask]
                 confidence_score = np.mean(object_probabilities[object_probabilities > 0.5])
                 self.confidence_scores.append(confidence_score)  
             
-            return np.array(self.area) * temp_nm_per_px**2, self.confidence_scores  
+            return np.array(self.area) * temp_nm_per_px**2, self.confidence_scores, true_img, overlay  
         else:
-            self.calc_length(self.prediction[-1], temp_nm_per_px, full_prob_map)
-            return np.array(self.lengths) * temp_nm_per_px, self.confidence_scores 
+            overlay_img = self.calc_length(self.prediction[-1], temp_nm_per_px, full_prob_map, overlay)
+            return np.array(self.lengths) * temp_nm_per_px, self.confidence_scores, true_img, overlay_img 
 
     def watershed(self, img, nm_px_ratio, plot = False):
         
@@ -318,7 +360,7 @@ class UNETEvaluator(Evaluator):
         filtered_labels = list(df[(df.mean_intensity > 100) & (df.area > 1.5/nm_px_ratio**2)].label)
         return area, markers, filtered_labels
 
-    def calc_length(self, img, nm_px_ratio, full_prob_map):
+    def calc_length(self, img, nm_px_ratio, full_prob_map, overlay):
         """
         Estimates the length of precipitates
         """
@@ -341,6 +383,12 @@ class UNETEvaluator(Evaluator):
             median_angle = np.median([angle for (length, angle) in l if length*nm_px_ratio > 5]) #Find angles of all detections longer than 5nm
             error        = 5.0 #degrees
             if  (median_angle - error<angle<median_angle + error) and length*nm_px_ratio>3: #If precipitate in correct direction (within error) and longer than 3nm, accept detection
+                mask = np.zeros_like(grey, dtype=np.uint8)
+                cv2.drawContours(mask, [contours[index]], -1, 1, thickness=cv2.FILLED)
+                overlay[mask > 0] = [255, 0, 0]
                 self.lengths.append(length) 
                 self.confidence_scores.append(conf_score[index])
+
+        return overlay
+
     
