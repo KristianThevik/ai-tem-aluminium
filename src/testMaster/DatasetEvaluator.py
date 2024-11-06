@@ -14,6 +14,7 @@ import pandas as pd
 from skimage import measure, color
 from skimage.measure import label
 import pandas as pd
+import testMaster._dm3_lib as dm
 
 
 """
@@ -26,13 +27,13 @@ class Evaluator:
         This is the general evaluator class, were each specfic model evaluator are subclasses
         dataset_dir: path to directory containing the dataset images
     """
-    def __init__(self, dataset_dir, model: Path, cross = True, device = 'cpu'):
+    def __init__(self, dataset_dir, model: Path, nm_per_px, cross = True, device = 'cpu'):
         self.dataset_dir = dataset_dir
-        self.image_paths = [os.path.join(dataset_dir, f) for f in os.listdir(dataset_dir) if f.endswith('.jpg') or f.endswith('.png')]
+        self.image_paths = [os.path.join(dataset_dir, f) for f in os.listdir(dataset_dir) if f.endswith('.jpg') or f.endswith('.png') or f.endswith('.dm3')]
         self.path = model
         self.cross = cross
         self.device = device
-        self.nm_per_px = 0.069661 # This has to be dynamically set or given as function paramter
+        self.nm_per_px = nm_per_px 
 
     def predict(self, img):
         raise NotImplementedError("Subclasses must implement predict method.")
@@ -50,8 +51,13 @@ class Evaluator:
         confidence_scores = []
 
         for id, image in enumerate(self.image_paths):
-            prediction, scores, gray_img, overlay_img = self.predict(image)
+            if image.endswith('.dm3'):
+                image, self.nm_per_px[id] = self.DM_2_array(dm.DM3(image))
+            #print(self.nm_per_px[id])
+
+            prediction, scores, gray_img, overlay_img = self.predict(image, self.nm_per_px[id])
             self.check_image(gray_img, overlay_img, id)
+
             for i in range(len(prediction)):
                 image_ids.append(id)
                 len_cross_vals.append(prediction[i])
@@ -60,7 +66,7 @@ class Evaluator:
         mean_value = np.mean(len_cross_vals)
         std_value = np.std(len_cross_vals)
         std_mean = std_value / np.sqrt(len(len_cross_vals))  # Standard error of the mean
-        number_density = len(len_cross_vals) / (len(image_ids)*(self.size*self.nm_per_px)**2)
+        number_density = len(len_cross_vals) / np.sum(((self.size*np.array(self.nm_per_px))**2)) # Assuming all images in a dataset has same size
 
         if self.cross:
             values = 'Cross section [nm^2]'
@@ -116,11 +122,27 @@ class Evaluator:
         fig.savefig(os.path.join(pred_path, f'Image{n}.png'), dpi = 300)
         plt.close(fig)
         
+    def DM_2_array(self, img) -> np.array:
+        """
+        Convert Digital Micrograph file to numpy array
+
+        img: An instance of the DM3 class from _dm3_lib.py
+
+        returns a numpy array of the grayscale image
+        """
+        nm_per_px = img.pxsize[0]
+        cons = img.contrastlimits
+        im   = img.imagedata
+        im[im>cons[1]] = cons[1]
+        im[im<cons[0]] = cons[0]
+        im =  ((im-cons[0])/(cons[1]-cons[0]))*255  #0 to 1
+        return im.astype(np.uint8), nm_per_px
+
 
     
 class RCNNEvaluator(Evaluator):
-    def __init__(self, dataset_dir, model, cross, device):
-        super().__init__(dataset_dir, model, cross, device) # Inherits what is common for all model evaluator from Evalutaor class
+    def __init__(self, dataset_dir, model, nm_per_px, cross, device):
+        super().__init__(dataset_dir, model, nm_per_px, cross, device) # Inherits what is common for all model evaluator from Evalutaor class
         self.size = 1024
         self.threshold = 0.9 if cross else 0.4
         self.erode_it = 0 if cross else 4
@@ -140,14 +162,18 @@ class RCNNEvaluator(Evaluator):
         """
         Opens the image, resizes it (if applicable), and converts it to a pytorch tensor.
         """
-        image = np.array(cv2.imread(file, cv2.IMREAD_GRAYSCALE))
+        if isinstance(file, np.ndarray):  # Check if it's already processed by DM_2_array
+            image = file
+        else:
+            image = np.array(cv2.imread(file, cv2.IMREAD_GRAYSCALE))
+
         image = cv2.resize(image, dsize=(self.size, self.size))
         image = np.expand_dims(image, axis=0)  # Adding channel dimension
         image = image / np.max(image)  # Normalize to range [0, 1]
         image = torch.tensor(image, dtype=torch.float32)
         return image
 
-    def predict(self, img):
+    def predict(self, img, nm_px_ratio):
         """
         Analyze mask and box predictions and return statistics like area or length.
         """
@@ -156,9 +182,9 @@ class RCNNEvaluator(Evaluator):
         self.lengths = []
         self.confidence_scores = []
         print('Mask threshold set to {0:.2f}'.format(self.threshold))
-        print('Calibration used: {0:.4f} nm/px'.format(self.nm_per_px))
+        print('Calibration used: {0:.4f} nm/px'.format(nm_px_ratio))
         im = self.to_tensor(img).unsqueeze(0).to(self.device)
-        temp_nm_per_px = self.nm_per_px *2 #Original calibration for 2048x2048, but images are resized to 1024x1024
+        temp_nm_per_px = nm_px_ratio *2 #Original calibration for 2048x2048, but images are resized to 1024x1024
         im_np = im[0].detach().cpu().numpy().transpose(1, 2, 0)  # Convert to HxWxC format
         gray = cv2.cvtColor(im_np,cv2.COLOR_BGR2RGB)
         overlay = gray.copy()
@@ -204,8 +230,8 @@ class RCNNEvaluator(Evaluator):
 
 
 class UNETEvaluator(Evaluator):
-    def __init__(self, dataset_dir, model, cross, device):
-        super().__init__(dataset_dir, model, cross, device) # Inherits what is common for all model evaluator from Evalutaor class
+    def __init__(self, dataset_dir, model, nm_per_px, cross, device):
+        super().__init__(dataset_dir, model, nm_per_px, cross, device) # Inherits what is common for all model evaluator from Evalutaor class
         self.size      = 1024
         self.tile_size = 512
         self.checkpoint = torch.load(model, map_location=torch.device(device))
@@ -236,7 +262,11 @@ class UNETEvaluator(Evaluator):
         For now keep these functions separate for each model-evaluator. Double check if UNET expects input
         files in range [-1,1], and RCNN [0,1]. If not, this function could be put in the Evaluator class
         """
-        image = np.array(cv2.imread(file, cv2.IMREAD_GRAYSCALE))
+        if isinstance(file, np.ndarray):  # Check if it's already processed by DM_2_array
+            image = file
+        else:
+            image = np.array(cv2.imread(file, cv2.IMREAD_GRAYSCALE))
+
         image = cv2.resize(image, dsize=(self.size, self.size))
         tensors = []
         images = self.tile_img(np.array(image), self.tile_size)
@@ -248,7 +278,7 @@ class UNETEvaluator(Evaluator):
             tensors.append(im)
         return np.array(image), tensors
 
-    def predict(self, img):
+    def predict(self, img, nm_px_ratio):
         """
         Prediction function
         
@@ -263,7 +293,7 @@ class UNETEvaluator(Evaluator):
         overlay = cv2.cvtColor(true_img, cv2.COLOR_GRAY2RGB)  
         new_im = Image.new('RGB', (self.size, self.size))
         full_prob_map = np.zeros((self.size, self.size))
-        temp_nm_per_px = self.nm_per_px * 2  # Original calibration for 2048x2048, but images are resized to 1024x1024
+        temp_nm_per_px = nm_px_ratio * 2  # Original calibration for 2048x2048, but images are resized to 1024x1024
 
         for index, im in enumerate(imgs):
             im = im.unsqueeze(0).to(self.device)
