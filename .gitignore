@@ -5,3 +5,7 @@
 *.DM3
 *.tif
 *.pth
+*.txt
+*.yaml
+*.jpeg
+*.cache

@@ -7,7 +7,7 @@ Created on Wed Feb 21 14:23:48 2024
 import torch
 from testMaster.RCNN.CustomDataset import CustomDataset
 from testMaster.RCNN.model_utils import get_model, initialize_optimizer
-from testMaster.RCNN.training_utils import train_model
+from testMaster.RCNN.training_utils import train_model, plot_training_results
 from pathlib import Path
 import os
  
@@ -57,4 +57,6 @@ model.train(True)
 print('Model loaded')
 
 # Start training
-train_model(model, optimizer, data_train, data_valid, device, out_path, batch_size, lr)
+train_loss, valid_loss, valid_IoU, train_mask_loss, valid_mask_loss = train_model(model, optimizer, data_train, data_valid, device, out_path, batch_size, lr)
+
+plot_training_results(train_loss, valid_loss, valid_IoU, train_mask_loss, valid_mask_loss)

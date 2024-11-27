@@ -17,10 +17,6 @@ import pandas as pd
 import testMaster._dm3_lib as dm
 
 
-"""
-    Method for converting Digital Micrograph files to arrays should be implemented
-    since datasets could be dm3 files.
-"""
 
 class Evaluator:
     """ 
@@ -66,8 +62,8 @@ class Evaluator:
         mean_value = np.mean(len_cross_vals)
         std_value = np.std(len_cross_vals)
         std_mean = std_value / np.sqrt(len(len_cross_vals))  # Standard error of the mean
-        number_density = len(len_cross_vals) / np.sum(((self.size*np.array(self.nm_per_px))**2)) # Assuming all images in a dataset has same size
-
+        number_density = len(len_cross_vals) / np.sum(((self.size*2*np.array(self.nm_per_px))**2)) # Assuming all images in a dataset has same size
+        # Multiply self.size with 2 above since images are originally 2048x2048 and the original nm_per_px is used
         if self.cross:
             values = 'Cross section [nm^2]'
             unit = 'nm^2'
@@ -421,4 +417,78 @@ class UNETEvaluator(Evaluator):
 
         return overlay
 
-    
+class YOLOEvaluator(Evaluator):
+    def __init__(self, dataset_dir, model, nm_per_px, cross, device):
+        super().__init__(dataset_dir, model, nm_per_px, cross, device) # Inherits what is common for all model evaluator from Evalutaor class
+        self.size      = 1024
+        self.model = model
+        self.threshold = 0.25
+
+        print('YOLOv11 Model Loaded')
+
+        
+    def predict(self, img, nm_px_ratio):
+        """
+        Performs YOLOv11 prediction on a single image
+        """
+        self.area = []
+        self.lengths = []
+        print('Prediction confidence threshold set to {0:.2f}'.format(self.threshold))
+
+        
+        if isinstance(img, np.ndarray):  # convert to RGB if grayscale(.dm3 case), if image not .dm3 file, img variable is a string
+            img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB) 
+           
+
+        # .predict() accepts both image files, str of image path, numpy array.
+        result = self.model.predict(img, conf=self.threshold)[0]
+        self.confidence_scores = result.boxes.conf
+        orig_img = result.orig_img
+        orig_img = cv2.resize(orig_img, dsize=(self.size, self.size))
+        print(np.shape(orig_img))
+        overlay = orig_img.copy()
+        
+        if self.cross:
+            masks = result.masks.data
+            
+            for i, mask in enumerate(masks):
+
+                binary_mask = mask > 0  # Convert to binary (1 where mask is present, else 0)
+                #print(np.shape(binary_mask))
+                pixel_count = binary_mask.sum().item()  
+                area = pixel_count * ((nm_px_ratio*2) ** 2) # Muliplying nm_px_ratio with 2 since images are resized
+                self.area.append(area)
+                overlay[binary_mask > 0] = [255, 0, 0]
+                
+
+            return self.area, self.confidence_scores, orig_img, overlay
+        
+        else:
+            masks = result.masks.data
+
+            for i, mask in enumerate(masks):
+                binary_mask = mask > 0  
+                binary_mask_np = binary_mask.cpu().numpy()
+
+                # Apply erosion to make the mask thinner
+                kernel = np.ones((2, 2), np.uint8)
+                binary_mask_eroded = cv2.erode(binary_mask_np.astype(np.float32), kernel, iterations=4)
+
+                # Remove regions touching the border
+                binary_mask = clear_border(binary_mask_eroded > 0, buffer_size=10)
+
+                # Clear border and erode heavily influence the results
+
+                points = np.argwhere(binary_mask)[:, ::-1]  # Convert from (row, column) to (x, y)
+
+                if len(points) >= 5:  # Ensure sufficient points for minAreaRect
+                    rect = cv2.minAreaRect(points.astype(np.float32))
+                    (center), (width, height), angle = rect
+                    length = np.max([width, height]) * nm_px_ratio * 2
+                    self.lengths.append(length)
+
+                    
+                    overlay[binary_mask > 0] = [255, 0, 0]
+
+            return self.lengths, self.confidence_scores, orig_img, overlay
+        

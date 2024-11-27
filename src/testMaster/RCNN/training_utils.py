@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 import os
+import matplotlib.pyplot as plt
 
 
 def calculate_iou_loss(pred_masks, target_masks, pred_score):
@@ -89,6 +90,7 @@ def train_model(model, optimizer, data_train, data_valid, device, out_path, batc
     save_checkpoint(model, optimizer, i, out_path, train_loss, valid_loss, valid_IoU, train_m_loss, valid_m_loss, batch_size, lr, temp=False)
     
     f.close()
+    return train_loss, valid_loss, valid_IoU, train_m_loss, valid_m_loss
 
 
    
@@ -123,3 +125,37 @@ def save_checkpoint(model, optimizer, i, out_path, train_loss, valid_loss, valid
             'tmask_loss': train_m_loss,
             'vmask_loss': valid_m_loss,
         }, out_path + "/normal.pth")
+
+def plot_training_results(train_loss, valid_loss, train_m_loss, valid_m_loss, valid_IoU):
+    epochs = range(1, len(train_loss) + 1)
+
+    # Overall Loss Plot
+    plt.figure(figsize=(12, 5))
+    plt.subplot(1, 2, 1)
+    plt.plot(epochs, train_loss, label='Training Loss', color='red')
+    plt.plot(epochs, valid_loss, label='Validation Loss', color='blue')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Overall Loss During Training')
+    plt.legend()
+
+    # Mask Loss Plot
+    plt.subplot(1, 2, 2)
+    plt.plot(epochs, train_m_loss, label='Training Mask Loss', color='red', linestyle='dashed')
+    plt.plot(epochs, valid_m_loss, label='Validation Mask Loss', color='blue', linestyle='dashed')
+    plt.xlabel('Epoch')
+    plt.ylabel('Mask Loss')
+    plt.title('Mask Loss During Training')
+    plt.legend()
+
+    plt.tight_layout()
+    plt.show()
+
+    # IoU Plot
+    plt.figure(figsize=(6, 5))
+    plt.plot(epochs, valid_IoU, label='Validation IoU (Dice Score)', color='green')
+    plt.xlabel('Epoch')
+    plt.ylabel('IoU (Dice Score)')
+    plt.title('Validation IoU During Training')
+    plt.legend()
+    plt.show()
