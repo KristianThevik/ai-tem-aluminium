@@ -15,6 +15,7 @@ from skimage import measure, color
 from skimage.measure import label
 import pandas as pd
 import testMaster._dm3_lib as dm
+from scipy.stats import gaussian_kde
 
 
 
@@ -88,7 +89,32 @@ class Evaluator:
 
         print('Average: {0:.2f} {5}, STDev: {1:.2f} {5}, Number counted: {2:d}, STDev of mean: {3:.2f} {5}, Number density: {4:.7f}nm^-2'.format(mean_value, std_value, len(len_cross_vals), std_mean , number_density, unit))
 
-        
+        file_path = "cross.csv" if self.cross else "lengths.csv"
+        data = pd.read_csv(file_path, header=None, engine='python', names=['integer', 'decimal'], sep=',')
+
+        # Fill missing decimal values with 0
+        data['decimal'] = data['decimal'].fillna(0)
+
+        # Combine the integer and decimal parts
+        data_combined = data['integer'] + data['decimal'] / (10 ** data['decimal'].astype(str).str.len())
+
+        # Convert to a list or save back to a new file
+        number_list = data_combined.tolist()
+        print(len(number_list), number_list)
+        print('Mean: ', np.mean(np.array(number_list)), 'STD: ', np.std(np.array(number_list)))
+        hist_numbers = np.array(number_list)
+        kde_n = gaussian_kde(hist_numbers)
+        x_vals_n = np.linspace(0, max(hist_numbers), 1000)  # Generate x-axis values
+        pdf_n = kde_n(x_vals_n)  # Evaluate the KDE at the x-axis values
+
+        x_lim = 120
+
+        if self.cross:
+            x_lim = 30
+        else:
+            x_lim = 120
+
+
         hist_vals = np.array(len_cross_vals)
         fig, ax = plt.subplots(figsize=(6, 4))
         ax.hist(hist_vals, bins=20, alpha=0.5, edgecolor="black")
@@ -97,8 +123,25 @@ class Evaluator:
         ax.set_xlim(0, max(hist_vals))
         ax.set_ylabel("Number Frequency")
         ax.set_title("Distribution of Cross-Sectional Areas" if self.cross else "Distribution of Lengths")
-       
+
+        kde = gaussian_kde(hist_vals)
+        x_vals = np.linspace(0, max(hist_vals), 1000)  # Generate x-axis values
+        pdf = kde(x_vals)  # Evaluate the KDE at the x-axis values
+
+        plt.figure(figsize=(6, 4))
+        plt.plot(x_vals, pdf, color="blue", label="YOLO")
+        plt.plot(x_vals, pdf_n, color="red", label="Manual")
+        plt.xlabel(" Precipitate Cross Section [nm^2]" if self.cross else "Precipitate Length [nm]", fontsize=22)
+        plt.ylabel("Normalized Distribution" + (" [1/nm^2]" if self.cross else " [1/nm]"), fontsize=22)
+        plt.title("Distribution of " + ("cross sections" if self.cross else "lengths"), fontsize=26)
+        plt.legend(fontsize=16)
+
+        plt.grid(True)
+        plt.xlim(0, x_lim)  # Limits the x-axis from 0 to 120
+
         plt.show()
+       
+        
 
     def check_image(self, img, mask, n):
 
