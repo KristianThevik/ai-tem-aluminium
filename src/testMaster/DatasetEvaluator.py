@@ -24,11 +24,11 @@ class Evaluator:
         This is the general evaluator class, were each specfic model evaluator are subclasses
         dataset_dir: path to directory containing the dataset images
     """
-    def __init__(self, dataset_dir, model: Path, nm_per_px, cross = True, device = 'cpu'):
+    def __init__(self, dataset_dir, model: Path, nm_per_px, type = 'cross', device = 'cpu'):
         self.dataset_dir = dataset_dir
         self.image_paths = [os.path.join(dataset_dir, f) for f in os.listdir(dataset_dir) if f.endswith('.jpg') or f.endswith('.png') or f.endswith('.dm3')]
         self.path = model
-        self.cross = cross
+        self.type = type
         self.device = device
         self.nm_per_px = nm_per_px 
 
@@ -65,8 +65,11 @@ class Evaluator:
         std_mean = std_value / np.sqrt(len(len_cross_vals))  # Standard error of the mean
         number_density = len(len_cross_vals) / np.sum(((self.size*2*np.array(self.nm_per_px))**2)) # Assuming all images in a dataset has same size
         # Multiply self.size with 2 above since images are originally 2048x2048 and the original nm_per_px is used
-        if self.cross:
+        if self.type == 'cross':
             values = 'Cross section [nm^2]'
+            unit = 'nm^2'
+        elif self.type == 'dark field':
+            values = 'Cross section DF [nm^2]'
             unit = 'nm^2'
         else:
             values = 'Length [nm]'
@@ -85,11 +88,11 @@ class Evaluator:
         }
 
         df = pd.DataFrame(stats_dict)
-        df.to_csv(os.path.join(os.path.dirname(self.dataset_dir), 'statistics.csv'))
+        df.to_csv(os.path.join(os.path.dirname(self.dataset_dir), 'statistics_lengths.csv'))
 
         print('Average: {0:.2f} {5}, STDev: {1:.2f} {5}, Number counted: {2:d}, STDev of mean: {3:.2f} {5}, Number density: {4:.7f}nm^-2'.format(mean_value, std_value, len(len_cross_vals), std_mean , number_density, unit))
 
-        file_path = "cross.csv" if self.cross else "lengths.csv"
+        file_path = "cross.csv" if self.type == 'cross' else "lengths.csv" # DF functionailty needed
         data = pd.read_csv(file_path, header=None, engine='python', names=['integer', 'decimal'], sep=',')
 
         # Fill missing decimal values with 0
@@ -109,7 +112,7 @@ class Evaluator:
 
         x_lim = 120
 
-        if self.cross:
+        if self.type == 'cross' or 'dark field':
             x_lim = 30
         else:
             x_lim = 120
@@ -118,11 +121,12 @@ class Evaluator:
         hist_vals = np.array(len_cross_vals)
         fig, ax = plt.subplots(figsize=(6, 4))
         ax.hist(hist_vals, bins=20, alpha=0.5, edgecolor="black")
+        dark_field_prefix = "DF" if self.type == 'dark field' else ""
 
-        ax.set_xlabel("Cross Section [nm^2]" if self.cross else "Length [nm]")  # Adjust based on your measurement
+        ax.set_xlabel(f"{dark_field_prefix} Cross Section [nm^2]" if self.type == 'cross' or 'dark field' else "Length [nm]")  # DF rephrase Adjust based on your measurement
         ax.set_xlim(0, max(hist_vals))
         ax.set_ylabel("Number Frequency")
-        ax.set_title("Distribution of Cross-Sectional Areas" if self.cross else "Distribution of Lengths")
+        ax.set_title(f"Distribution of {dark_field_prefix} Cross-Sectional Areas" if self.type == 'cross' or 'dark field' else "Distribution of Lengths") #DF rephrase
 
         kde = gaussian_kde(hist_vals)
         x_vals = np.linspace(0, max(hist_vals), 1000)  # Generate x-axis values
@@ -131,9 +135,11 @@ class Evaluator:
         plt.figure(figsize=(6, 4))
         plt.plot(x_vals, pdf, color="blue", label="YOLO")
         plt.plot(x_vals, pdf_n, color="red", label="Manual")
-        plt.xlabel(" Precipitate Cross Section [nm^2]" if self.cross else "Precipitate Length [nm]", fontsize=22)
-        plt.ylabel("Normalized Distribution" + (" [1/nm^2]" if self.cross else " [1/nm]"), fontsize=22)
-        plt.title("Distribution of " + ("cross sections" if self.cross else "lengths"), fontsize=26)
+        
+        
+        plt.xlabel(f"{dark_field_prefix} Precipitate Cross Section [nm^2]" if self.type == 'cross' or 'dark field' else "Precipitate Length [nm]", fontsize=22)
+        plt.ylabel("Normalized Distribution" + (" [1/nm^2]" if self.type == 'cross' or 'dark field' else " [1/nm]"), fontsize=22)
+        plt.title("Distribution of " + (f"{dark_field_prefix} cross sections" if self.type == 'cross' or 'dark field' else "lengths"), fontsize=26)
         plt.legend(fontsize=16)
 
         plt.grid(True)
@@ -180,11 +186,11 @@ class Evaluator:
 
     
 class RCNNEvaluator(Evaluator):
-    def __init__(self, dataset_dir, model, nm_per_px, cross, device):
-        super().__init__(dataset_dir, model, nm_per_px, cross, device) # Inherits what is common for all model evaluator from Evalutaor class
+    def __init__(self, dataset_dir, model, nm_per_px, type, device):
+        super().__init__(dataset_dir, model, nm_per_px, type, device) # Inherits what is common for all model evaluator from Evalutaor class
         self.size = 1024
-        self.threshold = 0.9 if cross else 0.4
-        self.erode_it = 0 if cross else 4
+        self.threshold = 0.9 if type == 'cross' else 0.4 #DF
+        self.erode_it = 0 if type == 'cross' else 4 #DF
 
         # Load the model
         self.checkpoint = torch.load(self.path, map_location=torch.device(self.device))
@@ -231,7 +237,7 @@ class RCNNEvaluator(Evaluator):
         with torch.no_grad():
             pred = self.model(im)
             
-        if self.cross:
+        if self.type == 'cross':
             for i in range(len(pred[0]['masks'])):
                 msk = pred[0]['masks'][i,0].detach().cpu().numpy()
                 scr = pred[0]['scores'][i].detach().cpu().numpy()
@@ -269,8 +275,8 @@ class RCNNEvaluator(Evaluator):
 
 
 class UNETEvaluator(Evaluator):
-    def __init__(self, dataset_dir, model, nm_per_px, cross, device):
-        super().__init__(dataset_dir, model, nm_per_px, cross, device) # Inherits what is common for all model evaluator from Evalutaor class
+    def __init__(self, dataset_dir, model, nm_per_px, type, device):
+        super().__init__(dataset_dir, model, nm_per_px, type, device) # Inherits what is common for all model evaluator from Evalutaor class
         self.size      = 1024
         self.tile_size = 512
         self.checkpoint = torch.load(model, map_location=torch.device(device))
@@ -353,7 +359,7 @@ class UNETEvaluator(Evaluator):
         self.prediction.append(np.array(new_im))
 
 
-        if self.cross:
+        if self.type == 'cross':
             area, markers, labels = self.watershed(self.prediction[-1], temp_nm_per_px, plot=False)
             self.area += area
 
@@ -461,11 +467,11 @@ class UNETEvaluator(Evaluator):
         return overlay
 
 class YOLOEvaluator(Evaluator):
-    def __init__(self, dataset_dir, model, nm_per_px, cross, device):
-        super().__init__(dataset_dir, model, nm_per_px, cross, device) # Inherits what is common for all model evaluator from Evalutaor class
+    def __init__(self, dataset_dir, model, nm_per_px, type, device):
+        super().__init__(dataset_dir, model, nm_per_px, type, device) # Inherits what is common for all model evaluator from Evalutaor class
         self.size      = 1024
         self.model = model
-        self.threshold = 0.25
+        self.threshold = 0.3
 
         print('YOLOv11 Model Loaded')
 
@@ -476,6 +482,7 @@ class YOLOEvaluator(Evaluator):
         """
         self.area = []
         self.lengths = []
+        self.bboxes = []
         print('Prediction confidence threshold set to {0:.2f}'.format(self.threshold))
 
         
@@ -484,14 +491,14 @@ class YOLOEvaluator(Evaluator):
            
 
         # .predict() accepts both image files, str of image path, numpy array.
-        result = self.model.predict(img, conf=self.threshold)[0]
+        result = self.model.predict(img, conf=self.threshold, max_det=1000)[0]
         self.confidence_scores = result.boxes.conf
         orig_img = result.orig_img
         orig_img = cv2.resize(orig_img, dsize=(self.size, self.size))
         print(np.shape(orig_img))
         overlay = orig_img.copy()
         
-        if self.cross:
+        if self.type == 'cross':
             masks = result.masks.data
             
             for i, mask in enumerate(masks):
@@ -501,10 +508,37 @@ class YOLOEvaluator(Evaluator):
                 pixel_count = binary_mask.sum().item()  
                 area = pixel_count * ((nm_px_ratio*2) ** 2) # Muliplying nm_px_ratio with 2 since images are resized
                 self.area.append(area)
-                overlay[binary_mask > 0] = [255, 0, 0]
+                #overlay[binary_mask > 0] = [255, 0, 0] cross sections way
+
+                # Compute centroid of the mask
+                y_coords, x_coords = np.where(binary_mask)  # Get all pixel positions
+                if len(x_coords) > 0 and len(y_coords) > 0:
+                    centroid_x = int(x_coords.mean())  # Mean X position
+                    centroid_y = int(y_coords.mean())  # Mean Y position
+            
+                # Place a small red dot at the centre of detected precipitate mask
+                overlay[centroid_y - 4:centroid_y + 4, centroid_x - 4:centroid_x + 4] = [255, 0, 0]
+
                 
 
             return self.area, self.confidence_scores, orig_img, overlay
+        
+        elif self.type == 'dark field':
+            bboxes = result.boxes.data 
+            for i, bbox in enumerate(bboxes):
+                x1, y1, x2, y2, conf, cls_id = bbox
+                bbox_area = (abs(x2-x1))*(abs(y2-y1))
+                self.bboxes.append(bbox_area)
+
+                x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2) # cv2.rectangle takes integers
+                if abs(x2 - x1) < 1:
+                    x2 += 1
+                if abs(y2 - y1) < 1:
+                    y2 += 1
+                
+                overlay = cv2.rectangle(overlay, (x1, y1), (x2, y2), (255, 0, 0), 1)
+            
+            return self.bboxes, self.confidence_scores, orig_img, overlay
         
         else:
             masks = result.masks.data
