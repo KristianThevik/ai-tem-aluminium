@@ -109,7 +109,7 @@ def save_checkpoint(model, optimizer, i, out_path, train_loss, valid_loss, valid
             'train_loss': train_loss,
             'tmask_loss': train_m_loss,
             'vmask_loss': valid_m_loss,
-        }, out_path + "/temp_save.pth")
+        }, str(out_path) + "/temp_save.pth")
     else:
         # Save the final model as 'normal.pth' at the end
         torch.save({
