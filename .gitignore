@@ -12,5 +12,7 @@
 *.roi
 *.zip
 *.json
+*.pt
+
 
 
