@@ -1,3 +1,3 @@
-import testMaster.calculate 
-x = testMaster.calculate.example()
+import master.calculate 
+x = master.calculate.example()
 print(x)
